@@ -61,6 +61,25 @@ class WebSocketService {
     return sub
   }
 
+  // Subscribe to Session/Balance updates. Topic: /topic/sessao/{qrCodeSessao}
+  subscribeToSessionUpdates(qrCodeSessao, callback) {
+    if (!this.client || !this.client.connected) {
+      console.warn('Cannot subscribe to session, STOMP client not connected')
+      return null
+    }
+
+    const topic = `/topic/sessao/${qrCodeSessao}`
+    const sub = this.client.subscribe(topic, (message) => {
+      if (message.body) {
+        const payload = JSON.parse(message.body)
+        callback(payload)
+      }
+    })
+
+    this.subscriptions.set(topic, sub)
+    return sub
+  }
+
   unsubscribe(topic) {
     if (this.subscriptions.has(topic)) {
       this.subscriptions.get(topic).unsubscribe()

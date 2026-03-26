@@ -23,10 +23,13 @@
       </div>
 
       <div class="order-list">
-        <div class="card" v-for="order in activeOrders" :key="order.id">
+        <div class="card clickable" v-for="order in activeOrders" :key="order.id" @click="toggleOrder(order.id)">
           <div class="flex-row justify-between mb-2 pb-2 border-b">
             <span>Pedido #{{ order.numero || order.id }}</span>
-            <span class="status-badge" :class="getStatusClass(order.status)">{{ order.status }}</span>
+            <div class="flex-row items-center gap-2">
+               <span class="status-badge" :class="getStatusClass(order.status)">{{ order.status }}</span>
+               <i class="chevron" :class="{ 'chevron-up': expandedOrders.has(order.id) }"></i>
+            </div>
           </div>
 
           <!-- Loading dinâmico (Taxa de Conclusão) -->
@@ -41,11 +44,26 @@
               </div>
             </div>
           </div>
-          <div class="order-items">
+          
+          <div class="order-items mb-3">
             <div v-for="item in order.items" :key="item.id" class="text-sm py-1">
               {{ item.quantity }}x {{ item.nome }}
             </div>
           </div>
+
+          <!-- Detalhe por Cozinha (SubPedidos) - EXPANSÍVEL -->
+          <transition name="fade-slide">
+            <div v-if="expandedOrders.has(order.id) && order.subpedidos && order.subpedidos.length > 0" class="sub-orders mt-3 pt-3 border-t">
+              <p class="text-xs font-bold uppercase text-secondary mb-2 tracking-wider">Estado da Preparação:</p>
+              <div v-for="sub in order.subpedidos" :key="sub.id" class="sub-order-row flex justify-between items-center py-1">
+                <span class="text-xs text-text-primary">{{ sub.nomeCozinha }}</span>
+                <span class="status-dot-label flex items-center gap-1">
+                  <span class="status-dot" :class="getStatusDotClass(sub.status)"></span>
+                  <span class="text-xs" :style="{ color: getStatusColor(sub.status) }">{{ formatStatus(sub.status) }}</span>
+                </span>
+              </div>
+            </div>
+          </transition>
         </div>
       </div>
     </div>
@@ -84,29 +102,86 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useSessionStore } from '../stores/SessionStore'
 import { useOrdersStore } from '../stores/OrdersStore'
+import { wsService } from '../services/websocket'
 import QrcodeVue from 'qrcode.vue'
 
 const session = useSessionStore()
 const ordersStore = useOrdersStore()
 
 const showQrModal = ref(false)
+const expandedOrders = ref(new Set()) // Armazena IDs dos pedidos expandidos
 
 const activeOrders = computed(() => {
   return ordersStore.orders.filter(o => o.status !== 'Entregue' && o.status !== 'Finalizado' && o.status !== 'Cancelado')
 })
 
-import { onMounted } from 'vue'
+function toggleOrder(orderId) {
+  if (expandedOrders.value.has(orderId)) {
+    expandedOrders.value.delete(orderId)
+  } else {
+    expandedOrders.value.add(orderId)
+  }
+}
+
 onMounted(() => {
   ordersStore.fetchClientOrders()
+  session.fetchCurrentSession().then(() => {
+    // Inscrever para atualizações de saldo silenciosas
+    if (session.qrCodeSessao) {
+      wsService.connect(() => {
+        wsService.subscribeToSessionUpdates(session.qrCodeSessao, (event) => {
+          if (event.tipo === 'ATUALIZACAO_SALDO') {
+            console.log('💰 Saldo atualizado via WebSocket:', event.novoSaldo)
+            session.balance = event.novoSaldo
+          }
+        })
+      })
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (session.qrCodeSessao) {
+    wsService.unsubscribe(`/topic/sessao/${session.qrCodeSessao}`)
+  }
 })
 
 function getStatusClass(status) {
-  if (status === 'Pronto') return 'badge-success'
-  if (status === 'Em preparação') return 'badge-warning'
+  if (status === 'PRONTO' || status === 'Pronto') return 'badge-success'
+  if (status === 'EM_PREPARACAO' || status === 'Em preparação') return 'badge-warning'
+  if (status === 'CANCELADO') return 'badge-danger'
   return 'badge-neutral'
+}
+
+function getStatusDotClass(status) {
+  if (status === 'PRONTO') return 'dot-success'
+  if (status === 'EM_PREPARACAO') return 'dot-warning'
+  if (status === 'CANCELADO') return 'dot-danger'
+  if (status === 'PENDENTE') return 'dot-primary'
+  return 'dot-neutral'
+}
+
+function getStatusColor(status) {
+  if (status === 'PRONTO') return 'var(--success-color)'
+  if (status === 'EM_PREPARACAO') return 'var(--warning-color)'
+  if (status === 'CANCELADO') return 'var(--danger-color)'
+  if (status === 'PENDENTE') return 'var(--primary-color)'
+  return 'var(--text-secondary)'
+}
+
+function formatStatus(status) {
+  const map = {
+    'CRIADO': 'Recebido',
+    'PENDENTE': 'Fila de Espera',
+    'EM_PREPARACAO': 'A preparar',
+    'PRONTO': 'Pronto',
+    'ENTREGUE': 'Entregue',
+    'CANCELADO': 'Cancelado'
+  }
+  return map[status] || status
 }
 </script>
 
@@ -213,5 +288,64 @@ function getStatusClass(status) {
 @keyframes scaleUp {
   from { transform: scale(0.9); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
+}
+.border-t {
+  border-top: 1px solid var(--border-color);
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-success { background-color: var(--success-color); box-shadow: 0 0 6px var(--success-color); }
+.dot-warning { background-color: var(--warning-color); animation: pulse 2s infinite; }
+.dot-primary { background-color: var(--primary-color); }
+.dot-danger { background-color: var(--danger-color); }
+.dot-neutral { background-color: var(--text-secondary); }
+
+@keyframes pulse {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.badge-danger {
+  background-color: rgba(255, 59, 48, 0.2);
+  color: var(--danger-color);
+}
+
+.clickable {
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.clickable:active {
+  transform: scale(0.98);
+}
+
+.chevron {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(45deg);
+  transition: transform 0.3s ease;
+  display: block;
+}
+.chevron-up {
+  transform: rotate(-135deg);
+}
+
+/* Transições Vue */
+.fade-slide-enter-active, .fade-slide-leave-active {
+  transition: all 0.3s ease;
+  max-height: 200px;
+  overflow: hidden;
+}
+.fade-slide-enter-from, .fade-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  transform: translateY(-10px);
 }
 </style>

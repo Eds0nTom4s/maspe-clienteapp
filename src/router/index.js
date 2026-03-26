@@ -1,4 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { AuthService } from '../services/auth'
+
+// Rotas que precisam de autenticação
+const AUTH_ROUTES = ['/dashboard', '/history', '/wallet', '/payment', '/cart']
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -17,26 +21,31 @@ const router = createRouter({
       path: '/cart',
       name: 'cart',
       component: () => import('../views/CartView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/payment',
       name: 'payment',
       component: () => import('../views/PaymentView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/DashboardView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/history',
       name: 'history',
       component: () => import('../views/HistoryView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/wallet',
       name: 'wallet',
       component: () => import('../views/WalletView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/login',
@@ -44,6 +53,15 @@ const router = createRouter({
       component: () => import('../views/LoginView.vue'),
     }
   ],
+})
+
+// Guard global: protege rotas que requerem autenticação
+router.beforeEach((to) => {
+  if (to.meta.requiresAuth && !AuthService.isAuthenticated()) {
+    // Redireciona para login e guarda o destino original
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  return true // Permite a navegação
 })
 
 export default router

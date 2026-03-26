@@ -85,9 +85,11 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { AuthService } from '../services/auth'
+import { useSessionStore } from '../stores/SessionStore'
 
 const router = useRouter()
 const route = useRoute()
+const sessionStore = useSessionStore()
 
 const phoneNumber = ref('')
 const otpDigits = ref(['', '', '', ''])
@@ -136,8 +138,11 @@ async function validateOtp() {
 
   isLoading.value = true
   try {
-    const success = await AuthService.validateOtp(phoneNumber.value, otpCode.value)
-    if (success) {
+    const authData = await AuthService.validateOtp(phoneNumber.value, otpCode.value)
+    if (authData) {
+      // Preenche o store com os dados da sessão retornados
+      sessionStore.setSession(authData)
+      
       // Return to the previous page that requested auth or go to dashboard
       const redirectPath = route.query.redirect || '/dashboard'
       router.push(redirectPath)

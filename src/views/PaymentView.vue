@@ -36,8 +36,16 @@
           {{ isProcessing ? 'Processando...' : 'Pagar com Saldo' }}
         </button>
 
-        <p v-if="session.balance < cart.totalPrice" class="text-danger mt-2 text-center">
-          Saldo insuficiente. <a href="#" @click.prevent="$router.push('/wallet')">Carregar saldo</a>
+        <button 
+          class="btn btn-outline mt-3" 
+          style="width: 100%; border-color: var(--primary-color); color: var(--primary-color);"
+          :disabled="isProcessing"
+          @click="payAtCounter">
+          {{ isProcessing ? 'Processando...' : 'Pagar no Balcão' }}
+        </button>
+
+        <p v-if="session.balance < cart.totalPrice" class="text-secondary mt-2 text-center" style="font-size: 13px;">
+          Saldo insuficiente para débito direto. Pode optar por pagar no balcão ou <a href="#" @click.prevent="$router.push('/wallet')">recarregar saldo</a>.
         </p>
 
         <hr class="mt-4 mb-4" style="border-color: var(--border-color); opacity: 0.5;">
@@ -53,11 +61,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useCartStore } from '../stores/CartStore'
 import { useSessionStore } from '../stores/SessionStore'
 import { useOrdersStore } from '../stores/OrdersStore'
 import { useRouter } from 'vue-router'
+import { AuthService } from '../services/auth'
 
 const cart = useCartStore()
 const session = useSessionStore()
@@ -68,27 +77,40 @@ const errorMessage = ref('')
 const isProcessing = ref(false)
 const qrCodeFundo = ref('')
 
-async function payNow() {
-  if (!session.isActive) {
-    session.isActive = true // Simulate session wrapper
+// Carregar sessão ao entrar na página, se ainda não estiver carregada
+onMounted(async () => {
+  if (!session.isActive && AuthService.isAuthenticated()) {
+    await session.fetchCurrentSession()
   }
-  await processOrder(null)
+})
+
+async function payNow() {
+  // Redireciona para login se não estiver autenticado
+  if (!AuthService.isAuthenticated()) {
+    router.push({ path: '/login', query: { redirect: '/payment' } })
+    return
+  }
+  await processOrder(null, 'PRE_PAGO')
 }
 
 async function payWithBalance() {
-  await processOrder(null)
+  await processOrder(null, 'PRE_PAGO')
+}
+
+async function payAtCounter() {
+  await processOrder(null, 'POS_PAGO')
 }
 
 async function payWithQRCode() {
   await processOrder(qrCodeFundo.value)
 }
 
-async function processOrder(qrCode = null) {
+async function processOrder(qrCode = null, tipoPagamento = 'PRE_PAGO') {
   errorMessage.value = ''
   isProcessing.value = true
 
   try {
-    await orders.addOrder(cart.items, cart.totalPrice, qrCode)
+    await orders.addOrder(cart.items, cart.totalPrice, qrCode, tipoPagamento)
     cart.clearCart()
     router.push('/dashboard')
   } catch (error) {

@@ -8,9 +8,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from './stores/SessionStore'
+import { AuthService } from './services/auth'
 import BottomNav from './components/BottomNav.vue'
 
 const route = useRoute()
@@ -20,6 +21,17 @@ const showBottomNav = computed(() => {
   // Hide bottom nav on Home, Payment, and Login if preferred
   const hiddenRoutes = ['home', 'payment', 'login']
   return !hiddenRoutes.includes(String(route.name))
+})
+
+// Ao arrancar: restaurar sessão se o cliente já tiver token guardado
+onMounted(async () => {
+  if (AuthService.isAuthenticated() && !session.isActive) {
+    try {
+      await session.fetchCurrentSession()
+    } catch {
+      // Sessão pode ter expirado, o interceptor do api.js vai tratar o 401
+    }
+  }
 })
 </script>
 
@@ -35,3 +47,4 @@ const showBottomNav = computed(() => {
   overflow-y: auto;
 }
 </style>
+

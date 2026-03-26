@@ -34,8 +34,25 @@
         </button>
       </div>
 
-      <div class="card bg-surface-light text-sm mb-4">
-        <p>Garantimos a devolução de qualquer fundo não utilizado no final da sua sessão.</p>
+      <div class="qr-counter-section text-center p-4 border-dashed rounded-xl mt-6">
+        <h4 class="mb-2">Carregamento no Balcão</h4>
+        <p class="text-xs text-secondary mb-4">Apresente o QR Code abaixo ao atendente para carregar com dinheiro ou TPA.</p>
+        
+        <div class="qr-box bg-white p-3 rounded-lg inline-block shadow-sm">
+          <qrcode-vue
+            v-if="session.qrCodeSessao"
+            :value="session.qrCodeSessao"
+            :size="140"
+            level="M"
+            render-as="svg"
+          />
+          <div v-else class="text-secondary p-4">Código indisponível</div>
+        </div>
+        
+        <div class="mt-3">
+          <span class="text-xs text-secondary uppercase">Ref de Sessão:</span>
+          <p class="font-bold text-primary">{{ session.qrCodeSessao || '---' }}</p>
+        </div>
       </div>
     </div>
   </div>
@@ -45,6 +62,7 @@
 import { ref } from 'vue'
 import { useSessionStore } from '../stores/SessionStore'
 import { useRouter } from 'vue-router'
+import QrcodeVue from 'qrcode.vue'
 
 const session = useSessionStore()
 const router = useRouter()
@@ -102,5 +120,14 @@ async function loadAmount(amount) {
 }
 .text-sm {
   font-size: 14px;
+}
+.border-dashed {
+  border: 2px dashed var(--border-color);
+}
+.qr-counter-section {
+  background-color: var(--surface-color);
+}
+.qr-box {
+  border: 1px solid var(--border-color);
 }
 </style>

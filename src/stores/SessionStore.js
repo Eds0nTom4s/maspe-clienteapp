@@ -12,6 +12,16 @@ export const useSessionStore = defineStore('session', () => {
   const localName = ref('Sabor de Luanda') // This could be fetched too
   
   const isLoading = ref(false)
+  
+  function setSession(sessao) {
+    if (sessao && sessao.qrCodeSessao) {
+      isActive.value = true
+      sessionId.value = sessao.sessaoId
+      qrCodeSessao.value = sessao.qrCodeSessao
+      balance.value = sessao.saldoFundo || 0
+      tableNumber.value = sessao.referenciaMesa || ''
+    }
+  }
 
   // POST /sessoes-consumo/cliente/iniciar-sessao/qr/{token}
   async function openSessionFromQR(qrToken) {
@@ -69,7 +79,10 @@ export const useSessionStore = defineStore('session', () => {
     isLoading.value = true
     try {
       const formData = new URLSearchParams()
-      formData.append('fundoId', fundoId.value)
+      // Só incluir fundoId se estiver disponível — o backend resolve-o automaticamente se omitido
+      if (fundoId.value) {
+        formData.append('fundoId', fundoId.value)
+      }
       formData.append('valor', amount)
       formData.append('metodo', 'MULTICAIXA_EXPRESS')
       
@@ -96,5 +109,5 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  return { isLoading, isActive, balance, tableNumber, sessionId, fundoId, qrCodeSessao, localName, openSessionFromQR, fetchCurrentSession, rechargeFundClient }
+  return { isLoading, isActive, balance, tableNumber, sessionId, fundoId, qrCodeSessao, localName, openSessionFromQR, fetchCurrentSession, rechargeFundClient, setSession }
 })

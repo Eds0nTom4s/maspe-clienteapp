@@ -21,14 +21,19 @@ export const useOrdersStore = defineStore('orders', () => {
             numero: pedido.numero,
             items: pedido.itens.map(i => ({ 
               id: i.produtoId, 
-              nome: i.nomeProduto, 
+              nome: i.produtoNome, 
               quantity: i.quantidade 
             })),
             total: pedido.total,
             status: pedido.status,
             totalSubPedidos: pedido.totalSubPedidos || 0,
             completedSubPedidos: pedido.completedSubPedidos || 0,
-            subpedidosMap: {},
+            subpedidos: (pedido.subPedidos || []).map(sp => ({
+              id: sp.id,
+              nomeCozinha: sp.nomeCozinha,
+              status: sp.status,
+              itens: sp.itens.map(i => i.produtoNome)
+            })),
             timestamp: pedido.createdAt || new Date()
           }
         })
@@ -57,14 +62,14 @@ export const useOrdersStore = defineStore('orders', () => {
   }
 
   // POST /pedidos/cliente
-  async function addOrder(cartItems, total, qrCodeFundo = null) {
+  async function addOrder(cartItems, total, qrCodeFundo = null, tipoPagamento = 'PRE_PAGO') {
     isLoading.value = true
     const sessionStore = useSessionStore()
     
     try {
       const payload = {
         sessaoConsumoId: sessionStore.sessionId,
-        tipoPagamento: 'PRE_PAGO',
+        tipoPagamento,
         itens: cartItems.map(item => ({
           produtoId: item.id,
           quantidade: item.quantity,
@@ -76,6 +81,7 @@ export const useOrdersStore = defineStore('orders', () => {
         payload.qrCodeFundo = qrCodeFundo
       }
       
+      console.log('🚀 Enviando Pedido Cliente:', JSON.stringify(payload, null, 2))
       const { data } = await api.post('/pedidos/cliente', payload)
       
       const pedido = data.data
@@ -88,7 +94,12 @@ export const useOrdersStore = defineStore('orders', () => {
         status: pedido.status || 'CRIADO',
         totalSubPedidos: pedido.totalSubPedidos || 0,
         completedSubPedidos: pedido.completedSubPedidos || 0,
-        subpedidosMap: {},
+        subpedidos: (pedido.subPedidos || []).map(sp => ({
+          id: sp.id,
+          nomeCozinha: sp.nomeCozinha,
+          status: sp.status,
+          itens: sp.itens.map(i => i.produtoNome)
+        })),
         timestamp: new Date()
       }
       
@@ -132,16 +143,22 @@ export const useOrdersStore = defineStore('orders', () => {
       }
 
       // se for NotificacaoSubPedidoDTO
-      if (message.numero) {
-        const subId = message.id
+      if (message.numero || message.statusNovo) {
+        const subId = message.id || message.subPedidoId
         const newStatus = message.statusNovo
         
-        if (!order.subpedidosMap[subId]) {
-          order.subpedidosMap[subId] = message.statusAnterior || 'CRIADO'
-        }
+        if (!order.subpedidos) order.subpedidos = []
         
-        const oldStatus = order.subpedidosMap[subId]
-        order.subpedidosMap[subId] = newStatus
+        let subOrder = order.subpedidos.find(s => s.id === subId)
+        const oldStatus = subOrder ? subOrder.status : 'CRIADO'
+
+        if (!subOrder) {
+          // Se não existir (novo subpedido?), adiciona
+          subOrder = { id: subId, status: newStatus, nomeCozinha: message.nomeCozinha || 'Cozinha' }
+          order.subpedidos.push(subOrder)
+        } else {
+          subOrder.status = newStatus
+        }
         
         const isNowCompleted = newStatus === 'PRONTO' || newStatus === 'ENTREGUE'
         const wasCompleted = oldStatus === 'PRONTO' || oldStatus === 'ENTREGUE'
@@ -152,16 +169,14 @@ export const useOrdersStore = defineStore('orders', () => {
           order.completedSubPedidos--
         }
         
+        // Actualizar status visual do pedido principal
         if (order.totalSubPedidos > 0) {
           if (order.completedSubPedidos > 0 && order.completedSubPedidos < order.totalSubPedidos) {
-            order.status = 'Em preparação'
-          } else if (order.completedSubPedidos === order.totalSubPedidos) {
-            order.status = 'Pronto'
+            order.status = 'EM_PREPARACAO' // Mantendo o enum do backend
+          } else if (order.completedSubPedidos === order.totalSubPedidos && order.totalSubPedidos > 0) {
+            order.status = 'PRONTO'
           }
         }
-      } else if (message.statusNovo) {
-        // Fallback for direct order status updates
-        order.status = message.statusNovo
       }
     }
   }

@@ -1,5 +1,7 @@
 import api from './api'
 
+const TOKEN_KEY = 'authToken'
+
 export const AuthService = {
   
   // POST /api/auth/solicitar-otp
@@ -25,10 +27,10 @@ export const AuthService = {
       const token = response.data?.data?.accessToken
       
       if (token) {
-        localStorage.setItem('token', token)
-        return true
+        localStorage.setItem(TOKEN_KEY, token)
+        return response.data?.data // Retorna o objecto AuthResponse completo
       }
-      return false
+      return null
     } catch (error) {
       console.error('Failed to validate OTP:', error)
       throw error
@@ -36,10 +38,14 @@ export const AuthService = {
   },
 
   logout() {
-    localStorage.removeItem('token')
+    localStorage.removeItem(TOKEN_KEY)
   },
 
   isAuthenticated() {
-    return !!localStorage.getItem('token')
+    return !!localStorage.getItem(TOKEN_KEY)
+  },
+
+  getToken() {
+    return localStorage.getItem(TOKEN_KEY)
   }
 }
