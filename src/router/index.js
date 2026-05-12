@@ -57,7 +57,8 @@ const router = createRouter({
 
 // Guard global: protege rotas que requerem autenticação
 router.beforeEach((to) => {
-  if (to.meta.requiresAuth && !AuthService.isAuthenticated()) {
+  const hasAnonymousSession = !!sessionStorage.getItem('anonymousSession')
+  if (to.meta.requiresAuth && !AuthService.isAuthenticated() && !hasAnonymousSession) {
     // Redireciona para login e guarda o destino original
     return { path: '/login', query: { redirect: to.fullPath } }
   }

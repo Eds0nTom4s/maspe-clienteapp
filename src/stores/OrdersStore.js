@@ -12,7 +12,11 @@ export const useOrdersStore = defineStore('orders', () => {
   async function fetchClientOrders() {
     isLoading.value = true
     try {
-      const { data } = await api.get('/pedidos/cliente')
+      const sessionStore = useSessionStore()
+      const endpoint = sessionStore.anonymousMode && sessionStore.qrCodeSessao
+        ? `/public/consumo-anonimo/pedidos/${sessionStore.qrCodeSessao}`
+        : '/pedidos/cliente'
+      const { data } = await api.get(endpoint)
       if (data && data.success && data.data) {
         // Formatar para o frontend store state
         orders.value = data.data.map(pedido => {
@@ -82,7 +86,10 @@ export const useOrdersStore = defineStore('orders', () => {
       }
       
       console.log('🚀 Enviando Pedido Cliente:', JSON.stringify(payload, null, 2))
-      const { data } = await api.post('/pedidos/cliente', payload)
+      const endpoint = sessionStore.anonymousMode && sessionStore.qrCodeSessao
+        ? `/public/consumo-anonimo/pedidos/${sessionStore.qrCodeSessao}`
+        : '/pedidos/cliente'
+      const { data } = await api.post(endpoint, payload)
       
       const pedido = data.data
       

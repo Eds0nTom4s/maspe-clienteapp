@@ -65,7 +65,7 @@
           @click="validateOtp" 
           :disabled="isLoading || otpCode.length !== 4"
         >
-          {{ isLoading ? 'A validar...' : 'Entrar na Sessão' }}
+          {{ isLoading ? 'A validar...' : 'Entrar' }}
         </button>
 
         <button 
@@ -140,8 +140,9 @@ async function validateOtp() {
   try {
     const authData = await AuthService.validateOtp(phoneNumber.value, otpCode.value)
     if (authData) {
-      // Preenche o store com os dados da sessão retornados
-      sessionStore.setSession(authData)
+      if (authData.qrCodeSessao) {
+        sessionStore.setSession(authData)
+      }
       
       // Return to the previous page that requested auth or go to dashboard
       const redirectPath = route.query.redirect || '/dashboard'

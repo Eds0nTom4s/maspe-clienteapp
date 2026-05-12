@@ -5,12 +5,18 @@
     </div>
 
     <div class="container">
+      <div v-if="!session.isActive" class="card text-center mb-4 p-4">
+        <h3 class="text-primary mb-2">Nenhuma sessão ativa</h3>
+        <p class="text-secondary mb-4">Leia o QR Code da mesa para iniciar o consumo.</p>
+        <button class="btn btn-primary" @click="$router.push('/')">Voltar ao início</button>
+      </div>
+
       <div class="card bg-gradient mb-4 p-4 text-center">
         <p>Saldo Atual</p>
         <h1 class="text-success mb-2">Kz {{ typeof session.balance === 'number' ? session.balance.toFixed(2) : '0.00' }}</h1>
         <div class="flex-row gap-2 mt-3">
-          <button class="btn btn-primary flex-1 btn-sm" @click="$router.push('/wallet')">Carregar Fundo</button>
-          <button class="btn btn-outline flex-1 btn-sm text-white" style="border-color: rgba(255,255,255,0.3)" @click="showQrModal = true">Meu QR / Pagar</button>
+          <button class="btn btn-primary flex-1 btn-sm" :disabled="!session.isActive" @click="$router.push('/wallet')">Carregar Fundo</button>
+          <button class="btn btn-outline flex-1 btn-sm text-white" style="border-color: rgba(255,255,255,0.3)" :disabled="!session.isActive" @click="showQrModal = true">Meu QR / Pagar</button>
         </div>
       </div>
 

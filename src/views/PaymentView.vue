@@ -37,6 +37,7 @@
         </button>
 
         <button 
+          v-if="!session.anonymousMode"
           class="btn btn-outline mt-3" 
           style="width: 100%; border-color: var(--primary-color); color: var(--primary-color);"
           :disabled="isProcessing"
@@ -45,7 +46,10 @@
         </button>
 
         <p v-if="session.balance < cart.totalPrice" class="text-secondary mt-2 text-center" style="font-size: 13px;">
-          Saldo insuficiente para débito direto. Pode optar por pagar no balcão ou <a href="#" @click.prevent="$router.push('/wallet')">recarregar saldo</a>.
+          Saldo insuficiente para débito direto.
+          <span v-if="session.anonymousMode">Recarregue o fundo antes de confirmar o pedido.</span>
+          <span v-else>Pode optar por pagar no balcão ou</span>
+          <a href="#" @click.prevent="$router.push('/wallet')"> recarregar saldo</a>.
         </p>
 
         <hr class="mt-4 mb-4" style="border-color: var(--border-color); opacity: 0.5;">

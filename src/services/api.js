@@ -1,8 +1,8 @@
 import axios from 'axios'
 import router from '../router'
 
-// Using Vite's environment variables or defaulting to localhost backend
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
+// Em desenvolvimento, /api passa pelo proxy Vite para o backend Docker.
+const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 const api = axios.create({
   baseURL: API_URL,

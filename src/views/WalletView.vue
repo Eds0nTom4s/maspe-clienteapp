@@ -12,6 +12,9 @@
       <div v-if="successMessage" class="alert alert-success mb-4 p-3 rounded text-center" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;">
         {{ successMessage }}
       </div>
+      <div v-if="!session.isActive" class="alert alert-warning mb-4 p-3 rounded text-center">
+        Leia o QR Code da mesa antes de carregar o fundo.
+      </div>
 
       <div class="card text-center mb-4">
         <p>Fundo de Consumo</p>
@@ -19,17 +22,28 @@
       </div>
 
       <h3>Carregar Fundo</h3>
+      <div class="card mb-4">
+        <h4 class="mb-3">Método</h4>
+        <div class="grid-2">
+          <button class="btn" :class="metodoPagamento === 'GPO' ? 'btn-primary' : 'btn-outline'" @click="metodoPagamento = 'GPO'">Multicaixa Express</button>
+          <button class="btn" :class="metodoPagamento === 'REF' ? 'btn-primary' : 'btn-outline'" @click="metodoPagamento = 'REF'">Referência</button>
+        </div>
+        <button class="btn btn-outline mt-3" style="width: 100%;" @click="metodoPagamento = 'BALCAO'">Pagar no Balcão</button>
+      </div>
+      <div v-if="metodoPagamento === 'BALCAO'" class="alert alert-warning mb-4 p-3 rounded text-center">
+        Apresente o QR Code abaixo ao atendente para carregar no balcão.
+      </div>
       <div class="amounts grid-2 mt-3 mb-4">
-        <button class="btn btn-outline" @click="loadAmount(5000)" :disabled="isProcessing">
+        <button class="btn btn-outline" @click="loadAmount(5000)" :disabled="isProcessing || !session.isActive || metodoPagamento === 'BALCAO'">
           {{ isProcessing ? '...' : 'Kz 5,000' }}
         </button>
-        <button class="btn btn-outline" @click="loadAmount(10000)" :disabled="isProcessing">
+        <button class="btn btn-outline" @click="loadAmount(10000)" :disabled="isProcessing || !session.isActive || metodoPagamento === 'BALCAO'">
           {{ isProcessing ? '...' : 'Kz 10,000' }}
         </button>
-        <button class="btn btn-outline" @click="loadAmount(20000)" :disabled="isProcessing">
+        <button class="btn btn-outline" @click="loadAmount(20000)" :disabled="isProcessing || !session.isActive || metodoPagamento === 'BALCAO'">
           {{ isProcessing ? '...' : 'Kz 20,000' }}
         </button>
-        <button class="btn btn-outline" @click="loadAmount(50000)" :disabled="isProcessing">
+        <button class="btn btn-outline" @click="loadAmount(50000)" :disabled="isProcessing || !session.isActive || metodoPagamento === 'BALCAO'">
           {{ isProcessing ? '...' : 'Kz 50,000' }}
         </button>
       </div>
@@ -70,14 +84,20 @@ const router = useRouter()
 const isProcessing = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const metodoPagamento = ref('GPO')
 
 async function loadAmount(amount) {
+  if (!session.isActive) {
+    errorMessage.value = 'Leia o QR Code da mesa antes de carregar o fundo.'
+    return
+  }
+
   isProcessing.value = true
   errorMessage.value = ''
   successMessage.value = ''
 
   try {
-    const response = await session.rechargeFundClient(amount)
+    const response = await session.rechargeFundClient(amount, metodoPagamento.value)
     
     successMessage.value = response.message || 'Fundo carregado com sucesso!'
     

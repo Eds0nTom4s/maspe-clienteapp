@@ -1,8 +1,8 @@
 import SockJS from 'sockjs-client'
 import { Client } from '@stomp/stompjs'
 
-// Default to localhost, configurable via Vite env
-const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:8080/api/ws'
+// Em desenvolvimento, /api/ws passa pelo proxy Vite para o backend Docker.
+const WS_URL = import.meta.env.VITE_WS_URL || '/api/ws'
 
 class WebSocketService {
   constructor() {

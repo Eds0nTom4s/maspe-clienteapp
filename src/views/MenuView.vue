@@ -58,35 +58,35 @@ import api from '../services/api'
 const cart = useCartStore()
 
 const categories = ref([])
-const activeCategory = ref('')
+const activeCategory = ref('TODOS')
 const products = ref([])
 const isLoading = ref(true)
 const errorMessage = ref('')
 
 onMounted(async () => {
   try {
-    // 1. Carregar categorias primeiro
-    const resCategorias = await api.get('/public/cardapio/categorias')
-    
-    // O backend retorna um ApiResponse com { success: true, message: ..., data: [...] }
+    const [resCategorias, resProdutos] = await Promise.all([
+      api.get('/public/cardapio/categorias'),
+      api.get('/public/cardapio')
+    ])
+
     const categoriasPayload = resCategorias.data
     const categoriasList = categoriasPayload.data ? categoriasPayload.data : categoriasPayload
+    const produtosPayload = resProdutos.data
+    const produtosList = produtosPayload.data ? produtosPayload.data : produtosPayload
 
-    if (Array.isArray(categoriasList)) {
-      categories.value = categoriasList.map(c => typeof c === 'string' ? { id: c, descricao: c } : { id: c.id, descricao: c.descricao })
+    if (Array.isArray(produtosList)) {
+      products.value = produtosList
     }
 
-    if (categories.value.length > 0) {
-      activeCategory.value = categories.value[0].id
-      
-      // 2. Carregar produtos
-      const resProdutos = await api.get('/public/cardapio')
-      const produtosPayload = resProdutos.data
-      const produtosList = produtosPayload.data ? produtosPayload.data : produtosPayload
-      
-      if (Array.isArray(produtosList)) {
-        products.value = produtosList
-      }
+    const categoriasComProdutos = new Set(products.value.map(p => p.categoria))
+    if (Array.isArray(categoriasList)) {
+      categories.value = [
+        { id: 'TODOS', descricao: 'Todos' },
+        ...categoriasList
+          .map(c => typeof c === 'string' ? { id: c, descricao: c } : { id: c.id, descricao: c.descricao })
+          .filter(c => categoriasComProdutos.has(c.id))
+      ]
     }
   } catch (error) {
     console.error('Falha ao carregar produtos.', error)
@@ -101,6 +101,9 @@ onMounted(async () => {
 })
 
 const filteredProducts = computed(() => {
+  if (activeCategory.value === 'TODOS') {
+    return products.value
+  }
   return products.value.filter(p => p.categoria === activeCategory.value)
 })
 
