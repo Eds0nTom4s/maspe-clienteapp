@@ -1,6 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../services/api'
+import { AuthService, decodeJwtPayload } from '../services/auth'
 
 export const useSessionStore = defineStore('session', () => {
   const savedSession = JSON.parse(sessionStorage.getItem('anonymousSession') || 'null')
@@ -12,13 +13,75 @@ export const useSessionStore = defineStore('session', () => {
   const fundoId = ref(null)
   const anonymousMode = ref(false)
   const identifiedTable = ref(null)
-  const localName = ref('Sabor de Luanda') // This could be fetched too
-  
-  const isLoading = ref(false)
 
+  // O nome do restaurante será carregado por defeito como "Restaurante"
+  const localName = ref('Restaurante')
+  
+  // Extrai nome do restaurante do JWT se existir (Fallback rápido)
+  const token = AuthService.getToken()
+  if (token) {
+    const payload = decodeJwtPayload(token)
+    if (payload?.instituicao) localName.value = payload.instituicao
+  }
+
+  // Lógica de cache da Instituição
+  const CACHE_KEY = 'instituicaoData'
+  const currentApiUrl = import.meta.env.VITE_API_URL || '/api'
+  
+  function carregarInstituicaoDoCache() {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed.baseUrl === currentApiUrl && parsed.nome) {
+          localName.value = parsed.nome
+          return parsed // Retorna o objeto cacheado para comparação
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao ler cache da instituição:', e)
+    }
+    return null
+  }
+
+  // Busca ativamente os dados públicos da Instituição usando Stale-While-Revalidate
+  async function carregarInstituicao(forceRefresh = false) {
+    const cachedData = carregarInstituicaoDoCache()
+    
+    // Se forceRefresh for falso e não tivermos cache, temos de esperar pela API (await opcional)
+    // Se tivermos cache, a UI já mostra o valor antigo (stale), e fazemos a chamada em background
+    try {
+      const { data } = await api.get('/public/instituicao')
+      if (data?.data?.nome) {
+        // Atualiza a reatividade da App imediatamente se houver mudanças
+        if (!cachedData || cachedData.nome !== data.data.nome || cachedData.sigla !== data.data.sigla) {
+          localName.value = data.data.nome
+          localStorage.setItem(CACHE_KEY, JSON.stringify({
+            baseUrl: currentApiUrl,
+            nome: data.data.nome,
+            sigla: data.data.sigla,
+            urlLogo: data.data.urlLogo,
+            timestamp: Date.now()
+          }))
+        }
+      }
+    } catch (e) {
+      console.warn('Não foi possível sincronizar o nome da instituição via API em background.')
+    }
+  }
+
+  // Invoca automaticamente no arranque (A UI arranca com Cache, a API atualiza por trás)
+  carregarInstituicao()
+
+  const isLoading = ref(false)
+  let balanceSyncTimer = null
+  // Flag para evitar polling quando WebSocket está activo (evita pedidos HTTP redundantes)
+  let wsBalanceActive = ref(false)
+
+  // Restaurar sessão anónima do sessionStorage — incluindo anonymousMode (Fix P1)
   if (savedSession?.qrCodeSessao) {
     isActive.value = true
-    anonymousMode.value = true
+    anonymousMode.value = true   // ← correcção: estava em falta, causava 401 após reload
     sessionId.value = savedSession.sessionId
     qrCodeSessao.value = savedSession.qrCodeSessao
     balance.value = savedSession.balance || 0
@@ -36,26 +99,55 @@ export const useSessionStore = defineStore('session', () => {
       fundoId: fundoId.value
     }))
   }
-  
+
   function setSession(sessao) {
     if (sessao && sessao.qrCodeSessao) {
+      applySession(sessao)
+    }
+  }
+
+  function applySession(sessao) {
+    if (sessao && sessao.qrCodeSessao) {
       isActive.value = true
-      sessionId.value = sessao.sessaoId
+      sessionId.value = sessao.id || sessao.sessaoId
       qrCodeSessao.value = sessao.qrCodeSessao
       balance.value = sessao.saldoFundo || 0
       tableNumber.value = sessao.referenciaMesa || ''
+      fundoId.value = sessao.fundoId || fundoId.value
       persistAnonymousSession()
     }
   }
 
-  async function identifyTable(code) {
+  function setBalance(novoSaldo) {
+    balance.value = Number(novoSaldo || 0)
+    persistAnonymousSession()
+  }
+
+  /**
+   * Indica ao store que o WebSocket de saldo está activo.
+   * Quando true, o polling HTTP é suspenso para evitar redundância.
+   */
+  function setWsBalanceActive(active) {
+    wsBalanceActive.value = active
+    if (active) stopBalanceSync()
+  }
+
+  async function identifyTable(codigo) {
     isLoading.value = true
     try {
-      const normalizedCode = String(code || '').trim().toUpperCase()
-      const { data } = await api.get(`/public/mesa/${encodeURIComponent(normalizedCode)}`)
+      const { data } = await api.get(`/public/mesa/${encodeURIComponent(codigo)}`)
       identifiedTable.value = data.data
-      tableNumber.value = identifiedTable.value?.referencia || ''
-      return identifiedTable.value
+      tableNumber.value = data.data.referencia || ''
+      
+      if (data.data.unidadeAtendimentoNome) {
+        // Se escaneou uma mesa de um tenant/nome diferente do que temos em cache
+        if (localName.value !== data.data.unidadeAtendimentoNome) {
+          localName.value = data.data.unidadeAtendimentoNome
+          // Forçamos o refresh para atualizar também o cache (logo, sigla, etc.)
+          carregarInstituicao(true)
+        }
+      }
+      return data.data
     } finally {
       isLoading.value = false
     }
@@ -70,20 +162,19 @@ export const useSessionStore = defineStore('session', () => {
     isLoading.value = true
     try {
       const { data } = await api.post(`/sessoes-consumo/cliente/iniciar-sessao/qr/${qrToken}`)
-      
+
       const sessao = data.data
       if (sessao && (sessao.status === 'ABERTA' || sessao.status === 'AGUARDANDO_PAGAMENTO')) {
-        isActive.value = true
-        sessionId.value = sessao.id
-        balance.value = sessao.saldoFundo || 0
-        tableNumber.value = sessao.referenciaMesa || 'Desconhecida'
-        qrCodeSessao.value = sessao.qrCodeSessao || qrToken
-        fundoId.value = sessao.fundoId
+        applySession({
+          ...sessao,
+          qrCodeSessao: sessao.qrCodeSessao || qrToken,
+          referenciaMesa: sessao.referenciaMesa || 'Desconhecida'
+        })
         anonymousMode.value = false
       } else {
         isActive.value = false
       }
-      
+
       return data
     } catch (error) {
       console.error('Failed to open session from QR', error)
@@ -99,14 +190,11 @@ export const useSessionStore = defineStore('session', () => {
       const { data } = await api.post(`/public/consumo-anonimo/sessoes/qr/${qrToken}`)
       const sessao = data.data
       if (sessao && (sessao.status === 'ABERTA' || sessao.status === 'AGUARDANDO_PAGAMENTO')) {
-        isActive.value = true
         anonymousMode.value = true
-        sessionId.value = sessao.id
-        balance.value = sessao.saldoFundo || 0
-        tableNumber.value = sessao.referenciaMesa || 'Desconhecida'
-        qrCodeSessao.value = sessao.qrCodeSessao
-        fundoId.value = sessao.fundoId
-        persistAnonymousSession()
+        applySession({
+          ...sessao,
+          referenciaMesa: sessao.referenciaMesa || 'Desconhecida'
+        })
       }
       return data
     } catch (error) {
@@ -118,30 +206,48 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   // GET /sessoes-consumo/cliente/minha-sessao
-  async function fetchCurrentSession() {
-    isLoading.value = true
+  async function fetchCurrentSession(options = {}) {
+    const silent = Boolean(options.silent)
+    if (!silent) isLoading.value = true
     try {
       const { data } = anonymousMode.value && qrCodeSessao.value
         ? await api.get(`/public/consumo-anonimo/sessoes/${qrCodeSessao.value}`)
         : await api.get('/sessoes-consumo/cliente/minha-sessao')
-      
+
       const sessao = data.data
       if (sessao && (sessao.status === 'ABERTA' || sessao.status === 'AGUARDANDO_PAGAMENTO')) {
-        isActive.value = true
-        sessionId.value = sessao.id
-        balance.value = sessao.saldoFundo || 0
-        tableNumber.value = sessao.referenciaMesa
-        qrCodeSessao.value = sessao.qrCodeSessao
-        fundoId.value = sessao.fundoId
-        persistAnonymousSession()
+        applySession(sessao)
         return data
       }
     } catch (error) {
-      // If 404, there's no active session, which is fine
+      // Se 404, não existe sessão activa — é esperado
       console.info('No active session found')
     } finally {
-      isLoading.value = false
+      if (!silent) isLoading.value = false
     }
+  }
+
+  /**
+   * Polling HTTP de saldo como fallback quando WebSocket não estiver disponível.
+   * Quando o WS está activo (wsBalanceActive=true), este timer não inicia.
+   */
+  function startBalanceSync(intervalMs = 5000) {
+    if (balanceSyncTimer || !isActive.value) return
+    // Não inicia polling se o WebSocket já está a gerir as actualizações
+    if (wsBalanceActive.value) return
+    balanceSyncTimer = window.setInterval(() => {
+      if (!isActive.value || wsBalanceActive.value) {
+        stopBalanceSync()
+        return
+      }
+      fetchCurrentSession({ silent: true })
+    }, intervalMs)
+  }
+
+  function stopBalanceSync() {
+    if (!balanceSyncTimer) return
+    window.clearInterval(balanceSyncTimer)
+    balanceSyncTimer = null
   }
 
   // POST /api/financeiro/pagamento/recarga-sessao-ativa
@@ -158,7 +264,8 @@ export const useSessionStore = defineStore('session', () => {
           metodo,
           telefone
         })
-        setTimeout(() => fetchCurrentSession(), 5000)
+        // Actualização de saldo via WebSocket (ATUALIZACAO_SALDO) — sem setTimeout fixo.
+        // Para REF (referência bancária), o saldo só actualiza após o webhook AppyPay.
         return {
           message: data.message || 'Recarga solicitada.',
           success: true,
@@ -176,17 +283,16 @@ export const useSessionStore = defineStore('session', () => {
       if (telefone) {
         formData.append('telefone', telefone)
       }
-      
+
       const { data } = await api.post('/financeiro/pagamento/recarga-sessao-ativa', formData, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       })
-      
+
       if (data && data.success) {
-        // Como o pagamento no gateway real é assíncrono (aguarda SMS/Push no telefone do cliente)
-        // Por agora, assumimos que o mock callback será rápido. Faremos um fetch secundário após uns segundos.
-        setTimeout(() => fetchCurrentSession(), 5000)
-        
-        return { 
+        // Para GPO (Multicaixa Express): confirmação quase imediata.
+        // Para REF (referência bancária): saldo actualiza via WebSocket após webhook AppyPay.
+        // Não usamos setTimeout — o WebSocket notifica via ATUALIZACAO_SALDO quando chegar.
+        return {
           message: 'Solicitação enviada. Confirme o pagamento no seu telemóvel (Multicaixa Express).',
           success: true
         }
@@ -200,7 +306,14 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  return { isLoading, isActive, anonymousMode, balance, tableNumber, sessionId, fundoId, qrCodeSessao, identifiedTable, localName, identifyTable, getTableAccessToken, openSessionFromQR, openAnonymousSessionFromQR, fetchCurrentSession, rechargeFundClient, setSession }
+  return {
+    isLoading, isActive, anonymousMode, balance, tableNumber,
+    sessionId, fundoId, qrCodeSessao, identifiedTable, localName,
+    identifyTable, getTableAccessToken, openSessionFromQR,
+    openAnonymousSessionFromQR, fetchCurrentSession, rechargeFundClient,
+    setSession, setBalance, setWsBalanceActive,
+    startBalanceSync, stopBalanceSync
+  }
 })
 
 if (import.meta.hot) {

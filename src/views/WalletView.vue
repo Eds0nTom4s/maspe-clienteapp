@@ -18,7 +18,12 @@
 
       <div class="card text-center mb-4">
         <p>Fundo de Consumo</p>
-        <h1 class="text-success mt-2 mb-4">Kz {{ session.balance.toFixed(2) }}</h1>
+        <SensitiveBalance
+          class="mt-2 mb-4"
+          :amount="normalizedBalance"
+          heading-tag="h1"
+          value-class="text-success"
+        />
       </div>
 
       <h3>Carregar Fundo</h3>
@@ -73,10 +78,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useSessionStore } from '../stores/SessionStore'
 import { useRouter } from 'vue-router'
 import QrcodeVue from 'qrcode.vue'
+import SensitiveBalance from '../components/SensitiveBalance.vue'
 
 const session = useSessionStore()
 const router = useRouter()
@@ -85,6 +91,14 @@ const isProcessing = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const metodoPagamento = ref('GPO')
+const normalizedBalance = computed(() => Number(session.balance || 0))
+
+onMounted(() => {
+  if (session.isActive) {
+    session.fetchCurrentSession({ silent: true })
+    session.startBalanceSync()
+  }
+})
 
 async function loadAmount(amount) {
   if (!session.isActive) {

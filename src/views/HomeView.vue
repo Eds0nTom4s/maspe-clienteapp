@@ -12,20 +12,30 @@
 
     <div class="card text-center mb-4">
       <h3 class="text-primary mb-2">Identificar mesa</h3>
-      <p class="text-secondary mb-3">Digite a referência ou o código QR impresso na mesa.</p>
-      <input
-        v-model="manualCode"
-        type="text"
-        inputmode="text"
-        autocomplete="off"
-        autocapitalize="characters"
-        maxlength="20"
-        placeholder="Ex: MASPE-MESA-0001"
-        class="form-control mb-3"
-        style="text-align: center; text-transform: uppercase;"
-        :disabled="session.isLoading"
-        @keyup.enter="joinByManualCode"
-      />
+      <p class="text-secondary mb-6">Digite a referência ou o código QR impresso na mesa.</p>
+      <div class="input-wrapper mb-4">
+        <input
+          v-model="manualCode"
+          type="text"
+          inputmode="text"
+          autocomplete="off"
+          autocapitalize="characters"
+          maxlength="20"
+          placeholder="Ex: MASPE-MESA-0001"
+          class="pro-input"
+          :disabled="session.isLoading"
+          @keyup.enter="joinByManualCode"
+        />
+        <button class="qr-scan-btn" @click="startScanning" title="Escanear QR Code">
+          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <rect x="7" y="7" width="3" height="3"></rect>
+            <rect x="14" y="7" width="3" height="3"></rect>
+            <rect x="7" y="14" width="3" height="3"></rect>
+            <rect x="14" y="14" width="3" height="3"></rect>
+          </svg>
+        </button>
+      </div>
 
       <button class="btn btn-primary" :disabled="session.isLoading || !manualCode.trim()" @click="identifyByManualCode">
         {{ session.isLoading ? 'A identificar...' : 'Identificar mesa' }}
@@ -60,11 +70,24 @@
         Gerir Consumo
       </button>
     </div>
+
+    <!-- Modal Scanner QR -->
+    <div v-if="isScanning" class="scanner-modal">
+      <div class="scanner-header">
+        <h3 style="color: white; margin: 0;">Escaneie o QR da Mesa</h3>
+        <button class="close-btn" @click="stopScanning">✕</button>
+      </div>
+      <div class="scanner-container">
+        <qrcode-stream @detect="onDetect" @error="onScannerError"></qrcode-stream>
+      </div>
+      <p style="color: white; padding: 16px; margin: 0;">Aponte a câmera para o QR Code impresso na mesa.</p>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { QrcodeStream } from 'vue-qrcode-reader'
 import { useSessionStore } from '../stores/SessionStore'
 import { useRoute, useRouter } from 'vue-router'
 import { AuthService } from '../services/auth'
@@ -76,6 +99,7 @@ const router = useRouter()
 const errorMessage = ref('')
 const manualCode = ref('')
 const identifiedTable = ref(null)
+const isScanning = ref(false)
 
 const mesaAccessToken = computed(() => identifiedTable.value?.qrCode || normalizeToken(manualCode.value, false))
 const mesaIdentificadaLabel = computed(() => {
@@ -84,6 +108,12 @@ const mesaIdentificadaLabel = computed(() => {
   return 'Mesa não identificada'
 })
 
+/**
+ * Normaliza o código introduzido pelo utilizador, removendo espaços e passando para maiúsculas.
+ * @param {string} token - O código ou token a normalizar.
+ * @param {boolean} setError - Define se deve exibir erro caso o token seja inválido/vazio.
+ * @returns {string|null} Retorna o token normalizado ou null se inválido.
+ */
 function normalizeToken(token, setError = true) {
   const normalizedToken = String(token || '').trim().toUpperCase()
   if (!normalizedToken) {
@@ -93,11 +123,18 @@ function normalizeToken(token, setError = true) {
   return normalizedToken
 }
 
+// Limpa o estado da mesa identificada sempre que o utilizador altera o input
 watch(manualCode, () => {
   identifiedTable.value = null
   errorMessage.value = ''
 })
 
+/**
+ * Identifica uma mesa consultando a API (usando o método do SessionStore ou diretamente).
+ * É o primeiro passo para saber se o código inserido corresponde a uma mesa válida no backend.
+ * @param {string} code - O código de referência da mesa.
+ * @returns {Object|null} Os dados da mesa se encontrada, ou null.
+ */
 async function identifyTableCode(code) {
   const normalizedCode = normalizeToken(code)
   if (!normalizedCode) return null
@@ -120,6 +157,11 @@ async function identifyTableCode(code) {
   }
 }
 
+/**
+ * Método de fallback para identificar a mesa caso o método na SessionStore não esteja disponível.
+ * @param {string} normalizedCode - O código da mesa já validado e normalizado.
+ * @returns {Object} Dados da mesa retornados pela API.
+ */
 async function identifyTableDirectly(normalizedCode) {
   session.isLoading = true
   try {
@@ -133,6 +175,11 @@ async function identifyTableDirectly(normalizedCode) {
   }
 }
 
+/**
+ * Tenta juntar o utilizador à sessão da mesa identificada, mas exige autenticação via telefone.
+ * Se o utilizador não estiver autenticado, redireciona para a página de login.
+ * @param {string} token - O QR code ou token associado à mesa.
+ */
 async function joinByToken(token) {
   const normalizedToken = normalizeToken(token || mesaAccessToken.value)
   if (!normalizedToken) return
@@ -153,6 +200,11 @@ async function joinByToken(token) {
   }
 }
 
+/**
+ * Tenta juntar o utilizador à sessão da mesa de forma anónima (sem fazer login).
+ * Em caso de sucesso, redireciona para a vista de Carteira (WalletView) para gerir saldos pré-pagos.
+ * @param {string} token - O QR code ou token associado à mesa.
+ */
 async function joinAnonymouslyByToken(token) {
   const normalizedToken = normalizeToken(token || mesaAccessToken.value)
   if (!normalizedToken) return
@@ -167,20 +219,59 @@ async function joinAnonymouslyByToken(token) {
   }
 }
 
+/**
+ * Acionado ao clicar em "Entrar com telefone". 
+ * Verifica se a mesa já está identificada; se não estiver, identifica-a e depois vincula à sessão.
+ */
 async function joinByManualCode() {
   const mesa = identifiedTable.value || await identifyTableCode(manualCode.value)
   if (!mesa?.qrCode) return
   await joinByToken(mesa.qrCode)
 }
 
+/**
+ * Acionado ao clicar em "Consumir anonimamente". 
+ * Verifica se a mesa já está identificada; se não estiver, identifica-a e inicia a sessão anónima.
+ */
 async function joinAnonymouslyByManualCode() {
   const mesa = identifiedTable.value || await identifyTableCode(manualCode.value)
   if (!mesa?.qrCode) return
   await joinAnonymouslyByToken(mesa.qrCode)
 }
 
+/**
+ * Acionado pelo botão principal de "Identificar mesa".
+ * Apenas consulta a API para ver os detalhes da mesa, expondo depois os botões de ação final.
+ */
 async function identifyByManualCode() {
   await identifyTableCode(manualCode.value)
+}
+
+function startScanning() {
+  isScanning.value = true
+  errorMessage.value = ''
+}
+
+function stopScanning() {
+  isScanning.value = false
+}
+
+async function onDetect(detectedCodes) {
+  if (detectedCodes && detectedCodes.length > 0) {
+    const rawValue = detectedCodes[0].rawValue
+    stopScanning()
+    manualCode.value = rawValue
+    await identifyByManualCode()
+  }
+}
+
+function onScannerError(error) {
+  stopScanning()
+  if (error.name === 'NotAllowedError') {
+    errorMessage.value = 'Permissão de câmera negada. Digite o código manualmente.'
+  } else {
+    errorMessage.value = 'Erro ao iniciar a câmera: ' + error.message
+  }
 }
 
 onMounted(async () => {
@@ -223,5 +314,101 @@ onMounted(async () => {
 .entry-actions {
   display: flex;
   flex-direction: column;
+}
+
+.input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.qr-scan-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--primary-color);
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.qr-scan-btn:hover, .qr-scan-btn:active {
+  background-color: rgba(37, 140, 244, 0.1);
+}
+
+.pro-input {
+  width: 100%;
+  padding: 16px 50px 16px 20px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  background-color: var(--surface-color-light);
+  border: 2px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  outline: none;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pro-input::placeholder {
+  color: var(--text-secondary);
+  font-weight: 400;
+  letter-spacing: normal;
+  opacity: 0.7;
+}
+
+.pro-input:focus {
+  border-color: var(--primary-color);
+  background-color: var(--surface-color);
+  box-shadow: 0 0 0 4px rgba(37, 140, 244, 0.15);
+}
+
+.pro-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.scanner-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+}
+
+.scanner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: #111;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.scanner-container {
+  flex: 1;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
 }
 </style>

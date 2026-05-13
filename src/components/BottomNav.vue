@@ -1,5 +1,9 @@
 <template>
   <nav class="bottom-nav">
+    <router-link to="/" class="nav-item">
+      <span class="nav-icon">🏠</span>
+      Início
+    </router-link>
     <router-link to="/menu" class="nav-item">
       <span class="nav-icon">🍔</span>
       Menu
@@ -8,13 +12,13 @@
       <span class="nav-icon">📊</span>
       Sessão
     </router-link>
-    <router-link to="/history" class="nav-item">
-      <span class="nav-icon">📄</span>
-      Histórico
-    </router-link>
     <router-link to="/wallet" class="nav-item">
       <span class="nav-icon">💰</span>
       Carteira
+    </router-link>
+    <router-link to="/history" class="nav-item">
+      <span class="nav-icon">📄</span>
+      Histórico
     </router-link>
   </nav>
 </template>

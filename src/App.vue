@@ -8,7 +8,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from './stores/SessionStore'
 import { AuthService } from './services/auth'
@@ -18,20 +18,36 @@ const route = useRoute()
 const session = useSessionStore()
 
 const showBottomNav = computed(() => {
-  // Hide bottom nav on Home, Payment, and Login if preferred
-  const hiddenRoutes = ['home', 'payment', 'login']
+  // Esconde a barra apenas em Login e Pagamento (fluxos de foco total)
+  const hiddenRoutes = ['payment', 'login']
   return !hiddenRoutes.includes(String(route.name))
 })
 
 // Ao arrancar: restaurar sessão se o cliente já tiver token guardado
 onMounted(async () => {
-  if (AuthService.isAuthenticated() && !session.isActive) {
+  if (AuthService.isAuthenticated() || session.isActive || session.qrCodeSessao) {
     try {
-      await session.fetchCurrentSession()
+      await session.fetchCurrentSession({ silent: true })
+      session.startBalanceSync()
     } catch {
       // Sessão pode ter expirado, o interceptor do api.js vai tratar o 401
     }
   }
+})
+
+watch(
+  () => session.isActive,
+  (isActive) => {
+    if (isActive) {
+      session.startBalanceSync()
+    } else {
+      session.stopBalanceSync()
+    }
+  }
+)
+
+onUnmounted(() => {
+  session.stopBalanceSync()
 })
 </script>
 
@@ -47,4 +63,3 @@ onMounted(async () => {
   overflow-y: auto;
 }
 </style>
-

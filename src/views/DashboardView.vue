@@ -13,7 +13,12 @@
 
       <div class="card bg-gradient mb-4 p-4 text-center">
         <p>Saldo Atual</p>
-        <h1 class="text-success mb-2">Kz {{ typeof session.balance === 'number' ? session.balance.toFixed(2) : '0.00' }}</h1>
+        <SensitiveBalance
+          class="mb-2"
+          :amount="normalizedBalance"
+          heading-tag="h1"
+          value-class="text-success"
+        />
         <div class="flex-row gap-2 mt-3">
           <button class="btn btn-primary flex-1 btn-sm" :disabled="!session.isActive" @click="$router.push('/wallet')">Carregar Fundo</button>
           <button class="btn btn-outline flex-1 btn-sm text-white" style="border-color: rgba(255,255,255,0.3)" :disabled="!session.isActive" @click="showQrModal = true">Meu QR / Pagar</button>
@@ -113,6 +118,7 @@ import { useSessionStore } from '../stores/SessionStore'
 import { useOrdersStore } from '../stores/OrdersStore'
 import { wsService } from '../services/websocket'
 import QrcodeVue from 'qrcode.vue'
+import SensitiveBalance from '../components/SensitiveBalance.vue'
 
 const session = useSessionStore()
 const ordersStore = useOrdersStore()
@@ -120,9 +126,13 @@ const ordersStore = useOrdersStore()
 const showQrModal = ref(false)
 const expandedOrders = ref(new Set()) // Armazena IDs dos pedidos expandidos
 
+// Filtra usando os enums exactos do backend (MAIÚSCULAS)
 const activeOrders = computed(() => {
-  return ordersStore.orders.filter(o => o.status !== 'Entregue' && o.status !== 'Finalizado' && o.status !== 'Cancelado')
+  const terminalStatuses = new Set(['FINALIZADO', 'ENTREGUE', 'CANCELADO', 'Entregue', 'Finalizado', 'Cancelado'])
+  return ordersStore.orders.filter(o => !terminalStatuses.has(o.status))
 })
+
+const normalizedBalance = computed(() => Number(session.balance || 0))
 
 function toggleOrder(orderId) {
   if (expandedOrders.value.has(orderId)) {
@@ -133,18 +143,34 @@ function toggleOrder(orderId) {
 }
 
 onMounted(() => {
+  // Configura callback de erro de autenticação — para o loop de JWT expirado
+  wsService.onAuthError(() => {
+    console.warn('[Dashboard] Token expirado detectado pelo WebSocket. A fazer logout...')
+    import('../services/auth').then(({ AuthService }) => {
+      AuthService.logout()
+      session.stopBalanceSync()
+      import('../router/index.js').then(({ default: router }) => router.push('/login'))
+    })
+  })
+
   ordersStore.fetchClientOrders()
+
   session.fetchCurrentSession().then(() => {
-    // Inscrever para atualizações de saldo silenciosas
     if (session.qrCodeSessao) {
       wsService.connect(() => {
+        // WebSocket ligado com sucesso — suspende polling HTTP redundante
+        session.setWsBalanceActive(true)
+
         wsService.subscribeToSessionUpdates(session.qrCodeSessao, (event) => {
           if (event.tipo === 'ATUALIZACAO_SALDO') {
             console.log('💰 Saldo atualizado via WebSocket:', event.novoSaldo)
-            session.balance = event.novoSaldo
+            session.setBalance(event.novoSaldo)
           }
         })
       })
+    } else {
+      // WebSocket indisponível (sessão anónima ou sem qrCode) — usa polling como fallback
+      session.startBalanceSync()
     }
   })
 })

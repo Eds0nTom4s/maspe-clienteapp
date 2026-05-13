@@ -22,7 +22,12 @@
 
       <div v-else class="card mt-4">
         <h3>Saldo Atual</h3>
-        <h2 class="text-success mb-4">Kz {{ session.balance.toFixed(2) }}</h2>
+        <SensitiveBalance
+          class="mb-4"
+          :amount="normalizedBalance"
+          heading-tag="h2"
+          value-class="text-success"
+        />
         
         <div class="flex-row justify-between mb-4">
           <span>Total do Pedido:</span>
@@ -65,12 +70,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useCartStore } from '../stores/CartStore'
 import { useSessionStore } from '../stores/SessionStore'
 import { useOrdersStore } from '../stores/OrdersStore'
 import { useRouter } from 'vue-router'
 import { AuthService } from '../services/auth'
+import SensitiveBalance from '../components/SensitiveBalance.vue'
 
 const cart = useCartStore()
 const session = useSessionStore()
@@ -80,6 +86,7 @@ const router = useRouter()
 const errorMessage = ref('')
 const isProcessing = ref(false)
 const qrCodeFundo = ref('')
+const normalizedBalance = computed(() => Number(session.balance || 0))
 
 // Carregar sessão ao entrar na página, se ainda não estiver carregada
 onMounted(async () => {
